@@ -785,14 +785,38 @@ export async function runAIAssistantTurn(
       }),
     });
 
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Erro ao comunicar com a Assistente IA.');
+    const rawText = await res.text();
+    let data: Record<string, unknown> = {};
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText) as Record<string, unknown>;
+      } catch {
+        throw new Error(
+          `Resposta inválida do servidor de IA (HTTP ${res.status}). Verifique se a API /api/ai/chat está ativa.`
+        );
+      }
     }
 
-    const modelContent: AIContent | null = data.modelContent || null;
-    const functionCalls: Array<{ id?: string; name: string; args?: Record<string, unknown> }> =
-      data.functionCalls || [];
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 405 || !rawText) {
+        throw new Error(
+          `Serviço de IA indisponível neste endereço (HTTP ${res.status}). No Cloudflare Pages, certifique-se de enviar a pasta functions/ e configurar a variável GEMINI_API_KEY.`
+        );
+      }
+      throw new Error(
+        (typeof data.error === 'string' && data.error) ||
+          `Erro ao comunicar com a Assistente IA (HTTP ${res.status}).`
+      );
+    }
+
+    if (!rawText) {
+      throw new Error('O servidor retornou uma resposta vazia. Tente novamente em instantes.');
+    }
+
+    const modelContent = (data.modelContent as AIContent | null | undefined) || null;
+    const functionCalls =
+      (data.functionCalls as Array<{ id?: string; name: string; args?: Record<string, unknown> }> | undefined) ||
+      [];
 
     if (modelContent) {
       workingContents = [...workingContents, modelContent];
